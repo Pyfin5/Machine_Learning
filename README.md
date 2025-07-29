@@ -1,3 +1,6 @@
 Repository for Machine Learning and Deep Learning projects: 
 
-Currently includes a project executed as part of Georigia Tech's Deep Learning course. The project aims to evaluate various forms of CNNs for skin disease evaluation using curated skin disease data from Kaggle. 
+Currently includes the following projects: 
+
+1. Skin lesion detection with CNNs
+2. End-to-End Text_to_Sql bikeshare project
