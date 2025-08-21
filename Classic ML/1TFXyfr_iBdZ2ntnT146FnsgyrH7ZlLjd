@@ -1,0 +1,1211 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sat Apr 20 23:41:49 2024
+
+@author: 14168
+"""
+
+import pandas as pd 
+import os 
+import datetime as dt
+import requests 
+import statsapi
+import plotly.express as px
+import matplotlib.pyplot as plt 
+import networkx as nx
+import plotly.graph_objects as go
+import mpl_toolkits
+from mpl_toolkits.basemap import Basemap as Basemap
+import geopandas 
+import osmnx as ox, networkx as nx
+from IPython.display import IFrame,display, HTML
+import folium
+import webbrowser
+import zipfile
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.model_selection import KFold
+from sklearn.datasets import make_regression
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LinearRegression
+from sklearn.neural_network import MLPRegressor
+from sklearn.model_selection import GridSearchCV
+#from sklearn.model_selection import ValidationCurveDisplay, validation_curve
+from sklearn.metrics import mean_absolute_error
+from sklearn.model_selection import cross_val_score
+from xgboost import XGBRegressor
+from sklearn.model_selection import train_test_split
+from scipy.signal import savgol_filter    
+import numpy as np
+ox.config(log_console=True, use_cache=True)
+    #%%
+
+dirname = os.path.dirname(__file__)
+
+
+
+
+print(dirname)
+zip_file = zipfile.ZipFile(os.path.join(dirname,'bikeshare-ridership-2023.zip'))
+
+#%%
+print(zip_file.namelist())
+#%%
+data = []
+
+
+data = pd.read_csv(os.path.join(dirname,'bikeshare-ridership-2023.zip'), encoding='cp1252')
+#%%
+df = pd.concat(
+    [pd.read_csv(zip_file.open(i),  encoding='cp1252') for i in zip_file.namelist()],
+    ignore_index=True
+    )
+
+#%%
+arr = os.listdir(os.path.join(dirname,'bikeshare-ridership-2023'))
+print(arr)
+
+
+
+#%%
+data_appended = []
+
+for i in arr:
+    path = os.path.join(dirname,'bikeshare-ridership-2023',i)
+    data = pd.read_csv(path, encoding = 'cp1252')
+    print(data)
+    data_appended.append(data)
+
+print(data_appended)
+
+data_appended = pd.concat(data_appended)
+
+data_appended['Trip Id'] = data_appended['Trip Id'].fillna(value = data_appended['ï»¿Trip Id'])
+data_appended['Trip Id'] = [int(i) for i in data_appended['Trip Id']]
+data_appended = data_appended.drop(columns = 'ï»¿Trip Id')
+
+
+datetime_list = ['Start Time','End Time']
+
+for i in datetime_list:
+    data_appended['Date_{}'.format(i)] = pd.to_datetime(data_appended[i]).dt.date
+
+print(data_appended['Date_End Time'])
+#%%
+print(data_appended.columns)
+#%%
+weather_path = os.path.join(dirname,'weatherstats_toronto_daily.csv')
+weahter_data = pd.read_csv(weather_path)
+#%%
+print(weahter_data.columns)
+#%%
+public_holidays_path = os.path.join(dirname,'canada-holidays-2023-list-classic-en-ca.xlsx')
+public_holiday_data = pd.read_excel(public_holidays_path)
+public_holiday_data = public_holiday_data.reset_index()
+public_holiday_data[' DATE'] = pd.to_datetime(public_holiday_data[' DATE']).dt.date
+print(public_holiday_data.columns)
+#%%
+weahter_data = weahter_data[['date',
+                             'avg_hourly_temperature',
+                             'avg_hourly_wind_speed',
+                             'snow_on_ground',
+                             'precipitation',
+                             'snow']]
+
+#%%
+weahter_data['date'] = pd.to_datetime(weahter_data['date']).dt.date
+#%%
+url1 = "https://api-web.nhle.com/v1/club-schedule-season/TOR/20232024"
+url2 = "https://api-web.nhle.com/v1/club-schedule-season/TOR/20222023"
+response_1 = requests.get(url1)
+response_2 = requests.get(url2)
+
+NHL_data_2024 = response_1.json()
+NHL_data_2023 = response_2.json()
+#%%
+
+
+nhl_data_list = [NHL_data_2024,NHL_data_2023]
+
+nhl_games_appended = []
+
+for j in nhl_data_list: 
+    for i in range(len(j['games'])):
+        game_date = j['games'][i]['gameDate']
+        home_team = j['games'][i]['homeTeam']['placeName']['default']  
+        print(game_date)
+        nhl_games_appended.append([game_date,home_team])
+
+nhl_df = pd.DataFrame(nhl_games_appended)
+nhl_df = nhl_df.loc[nhl_df[1] == 'Toronto']
+nhl_df['Game Date NHL'] = pd.to_datetime(nhl_df[0]).dt.date
+print(nhl_df)
+
+
+#%%
+mlb_data = statsapi.schedule(start_date='01/01/2023',end_date='12/31/2023',team=141)
+
+
+#%%
+mlb_games_appended = []
+
+
+for i in range(len(mlb_data)):
+    game_date = mlb_data[i]['game_datetime']
+    home_team = mlb_data[i]['home_name']
+    mlb_games_appended.append([game_date,home_team])
+
+print(mlb_games_appended)
+
+mlb_games_appended = pd.DataFrame(mlb_games_appended)
+mlb_games_appended = mlb_games_appended.loc[mlb_games_appended[1] == 'Toronto Blue Jays']
+mlb_games_appended['Game Date MLB'] = pd.to_datetime(mlb_games_appended[0]).dt.date
+print(mlb_games_appended)
+#%%
+
+data_appended = data_appended.merge(mlb_games_appended,
+                                    how = 'left', 
+                                    left_on = 'Date_Start Time',
+                                    right_on = 'Game Date MLB')
+
+
+data_appended = data_appended.rename(columns = {0:'MLB Game Date',1:'MLB Team'})
+
+data_appended = data_appended.merge(nhl_df,
+                                    how = 'left', 
+                                    left_on = 'Date_Start Time',
+                                    right_on = 'Game Date NHL')
+
+data_appended = data_appended.rename(columns = {0:'NHL Game Date',1:'NHL Team'})
+#%%
+
+data_appended = data_appended.merge(weahter_data,
+                                    how = 'left', 
+                                    left_on = 'Date_Start Time',
+                                    right_on = 'date')
+#%%
+data_appended = data_appended.merge(public_holiday_data,
+                                    how = 'left', 
+                                    left_on = 'Date_Start Time',
+                                    right_on = ' DATE')
+
+
+#%%
+print(data_appended.columns)
+#%%
+bike_share_url = 'https://tor.publicbikesystem.net/ube/gbfs/v1/en/station_information'
+bikeshareloc = requests.get(bike_share_url).json()
+
+print(bikeshareloc.columns)
+
+
+bikeshare_stations = []
+
+for i in range(len(bikeshareloc['data']['stations'])):
+    lat = bikeshareloc['data']['stations'][i]['lat']
+    lon = bikeshareloc['data']['stations'][i]['lon']
+    station_id = bikeshareloc['data']['stations'][i]['station_id']
+    bikeshare_stations.append([station_id,lat,lon])
+
+
+bikeshare_stations = pd.DataFrame(bikeshare_stations)
+
+bikeshare_stations = bikeshare_stations.rename(columns = {0:'station_id',1:'lat',2:'lon'})
+bikeshare_stations['station_id'] = bikeshare_stations['station_id'].astype(int)
+#%%
+data_appended = data_appended.merge(bikeshare_stations,
+                                    how = 'left', 
+                                    left_on = 'Start Station Id',
+                                    right_on = 'station_id')
+
+data_appended = data_appended.merge(bikeshare_stations,
+                                    how = 'left', 
+                                    left_on = 'End Station Id',
+                                    right_on = 'station_id')
+#%%
+print(data_appended['station_id_x'].isna().sum())
+#%%
+data_appended = data_appended.rename(columns = {'station_id_x':'station_id_start',
+                                                'station_id_y':'station_id_end',
+                                                'lat_x':'lat_start',
+                                                'lon_x':'lon_start',
+                                                'lat_y':'lat_end',
+                                                'lon_y':'lon_end'})
+#%%
+data_grouped = data_appended.groupby(['station_id_start','station_id_end'], 
+                                     as_index = False).agg(station_count = ('station_id_end',
+                                                                            'count'))
+#%%
+data_grouped = data_grouped.astype(int)
+#%%
+data_grouped = data_grouped.merge(bikeshare_stations,
+                                    how = 'left', 
+                                    left_on = 'station_id_start',
+                                    right_on = 'station_id')
+
+data_grouped = data_grouped.merge(bikeshare_stations,
+                                    how = 'left', 
+                                    left_on = 'station_id_end',
+                                    right_on = 'station_id')
+#%%
+G = nx.DiGraph()
+G = nx.from_pandas_edgelist(data_grouped, 
+                            source = 'station_id_start',
+                            target = 'station_id_end', 
+                            edge_attr = 'station_count')
+
+layout_G = nx.spring_layout(G)
+
+weights = list(nx.get_edge_attributes(G,'station_count').values())
+weights = [i/50 for i in weights]
+
+
+nx.draw_networkx_nodes(G,layout_G)
+nx.draw_networkx_edges(G,layout_G)
+nx.draw_networkx_labels(G,layout_G)
+plt.show()
+
+plt.figure(figsize = (100,100))
+
+pos = nx.kamada_kawai_layout(G)
+
+node_options = {"node_color":"black","node_size":30}
+edge_options = {"width":weights, "alpha":0.5,"edge_color":'green'}
+nx.draw_networkx_nodes(G,pos, **node_options)
+nx.draw_networkx_edges(G,pos, **edge_options)
+plt.show()
+
+
+
+
+centrality_measure = nx.degree_centrality(G)
+
+
+print(centrality_measure[7000])
+
+centrality_measure = pd.DataFrame([centrality_measure]).transpose()
+
+centrality_measure = centrality_measure.reset_index()
+
+centrality_measure = pd.DataFrame.sort_values(centrality_measure, by = 0, ascending = False)
+#%%
+print(centrality_measure[:10])
+centrality_1 = centrality_measure.merge(bikeshare_stations,
+                                    how = 'left', 
+                                    left_on = 'index',
+                                    right_on = 'station_id')
+
+
+#%%
+print(centrality_1)
+centrality_10 = centrality_1[:10]
+print(centrality_1)
+print(centrality_10)
+#%%
+BBox = ((centrality_10['lon'].min(),  centrality_10['lon'].max(),      
+         centrality_10['lat'].min(),  centrality_10['lat'].max()))
+
+dirname = os.path.dirname(__file__)
+
+MAP_Path = os.path.join(dirname,'map1.png')
+
+Map =  plt.imread(MAP_Path)
+#%%
+fig, ax = plt.subplots(figsize = (8,7))
+ax.scatter(centrality_10['lon'],centrality_10['lat'],zorder=1, alpha= 0.2, c='b', s=10)
+ax.set_title('Plotting Spatial Data on Riyadh Map')
+ax.set_xlim(BBox[0],BBox[1])
+ax.set_ylim(BBox[2],BBox[3])
+ax.imshow(Map, zorder=0, extent = BBox, aspect= 'equal')
+#%%
+data_appended['Start Time'] = pd.to_datetime(data_appended['Start Time'])
+data_appended['weekday'] = data_appended['Start Time'].dt.day_name()
+#%%
+
+data_appended['Trip  Duration'] = data_appended['Trip  Duration']/60
+#%%
+# trip times & Trip KM bifurcate by snow, rain, 
+
+print(data_appended.columns)
+
+def game_ind(value):
+    # Check if the value is a string and contains 'foo'
+    if pd.isna(value) == True :
+        return 0
+    else:
+        return 1
+
+data_appended['game_coal'] = data_appended['Game Date MLB'].combine_first(data_appended['NHL Game Date'])
+data_appended['game_ind'] = data_appended['game_coal'].apply(game_ind)
+data_appended['Pub_Holiday'] = data_appended[' DATE'].apply(game_ind)
+
+#%%
+def weekend_ind(value):
+    if value == 'Saturday' or value == 'Sunday':
+        return 1
+    else: 
+        return 0 
+    
+    
+data_appended['weekend'] = data_appended['weekday'].apply(weekend_ind)
+#%%
+
+def Casual_ind(value):
+    if value == 'Casual Member':
+        return 1
+    else: 
+        return 0 
+    
+def Annual_ind(value):
+    if value == 'Annual Member':
+        return 1
+    else: 
+        return 0     
+
+def Season(value):
+    if value >=0 and value <15: 
+        return 'Spring/Autumn'
+    if value >15: 
+        return 'Summer'
+    if value <0: 
+        return 'Winter'
+    
+#data_appended['Annual User'] = data_appended['User Type'].apply(Annual_ind)
+data_appended['Casual User'] = data_appended['User Type'].apply(Casual_ind)
+data_appended['Season'] = data_appended['avg_hourly_temperature'].apply(Casual_ind)
+#%%
+data_appended = data_appended.drop(columns = ['Annual User'])
+#%%
+print(data_appended.columns)
+#%%
+data_appended['hour'] = data_appended['Start Time'].dt.hour
+#%%
+data_grouped = data_appended.groupby(['Date_Start Time'], 
+                                     as_index = False).agg(station_count = ('station_id_end',
+                                                                            'count'),
+                                                            avg_snow = ('snow',
+                                                                        'mean'),
+                                                            avg_rain = ('precipitation',
+                                                                        'mean'),
+                                                            avg_temp = ('avg_hourly_temperature',
+                                                                        'mean'),
+                                                            avg_wind= ('avg_hourly_wind_speed',
+                                                                        'mean'),            
+                                                            avg_trip= ('Trip  Duration',
+                                                            'mean'),
+                                                            avg_snow_ground= ('snow_on_ground',
+                                                            'mean')
+                                                            )
+                                                            
+                                                                            
+
+#%% Count
+fig, ax = plt.subplots(nrows = 1,ncols = 2, figsize = (20,10))
+ax[0].scatter(data_grouped['Date_Start Time'], 
+         data_grouped['station_count'],
+         s = data_grouped['station_count']*0.01)
+ax[0].grid(True)
+ax[0].set_title('Ridership by date', fontsize = 18)
+ax[1].scatter(data_grouped['Date_Start Time'], 
+         data_grouped['avg_trip'],
+         s = data_grouped['avg_trip']*15
+         )
+ax[1].grid(True)
+ax[1].set_title('Average Trip (Mins) by date', fontsize = 18)
+plt.show()
+#%%
+print(data_grouped)
+#%%
+fig, ax = plt.subplots(nrows = 5,ncols = 1, figsize = (100,40))
+ax[0].plot(data_grouped['Date_Start Time'], 
+         data_grouped['station_count'], 
+         label = data_grouped['game_ind'])
+
+ax[1].plot(data_grouped['Date_Start Time'], 
+         data_grouped['avg_snow'], 
+         )
+
+ax[2].plot(data_grouped['Date_Start Time'], 
+         data_grouped['avg_temp'], 
+         )
+
+ax[3].plot(data_grouped['Date_Start Time'], 
+         data_grouped['avg_wind'], 
+         )
+
+ax[4].plot(data_grouped['Date_Start Time'], 
+         data_grouped['avg_rain'], 
+         )
+
+
+plt.show()
+#%%
+fig, ax = plt.subplots(nrows = 5,ncols = 1, figsize = (100,40))
+ax[0].plot(data_grouped['Date_Start Time'], 
+         data_grouped['avg_trip'], 
+         label = data_grouped['game_ind'])
+
+ax[1].plot(data_grouped['Date_Start Time'], 
+         data_grouped['avg_snow'], 
+         )
+
+ax[2].plot(data_grouped['Date_Start Time'], 
+         data_grouped['avg_temp'], 
+         )
+
+ax[3].plot(data_grouped['Date_Start Time'], 
+         data_grouped['avg_wind'], 
+         )
+
+ax[4].plot(data_grouped['Date_Start Time'], 
+         data_grouped['avg_rain'], 
+         )
+
+
+plt.show()
+#%%
+fig, ax = plt.subplots(nrows = 2,ncols = 4, figsize = (25,10))
+ax[0][0].scatter(data_grouped['avg_snow'], 
+         data_grouped['avg_trip'], 
+         s = data_grouped['avg_trip']*10)
+ax[0][0].grid(True)
+ax[0][0].set_xlabel('Average Snowfall (mm)')
+
+ax[0][0].set_title('Average Snow Vs Average Trip (Mins)', fontsize = 18)
+ax[0][1].scatter(data_grouped['avg_temp'], 
+         data_grouped['avg_trip'],
+         s = data_grouped['avg_trip']*10
+         )
+ax[0][1].grid(True)
+ax[0][1].set_xlabel('Average Temperature (C)')
+
+ax[0][1].set_title('Average Temperature Vs Average Trip (Mins)', fontsize = 18)
+ax[0][2].scatter(data_grouped['avg_rain'], 
+         data_grouped['avg_trip'], 
+         s = data_grouped['avg_trip']*10
+         )
+ax[0][2].grid(True)
+ax[0][2].set_title('Average Rain Vs Average Trip (Mins)', fontsize = 18)
+ax[0][2].set_xlabel('Average Rain (mm)')
+
+ax[0][3].scatter(data_grouped['avg_snow_ground'], 
+         data_grouped['avg_trip'], 
+         s = data_grouped['avg_trip']*10
+         )
+ax[0][3].grid(True)
+ax[0][3].set_title('Average Snow on Ground Vs Average Trip (Mins)', fontsize = 18)
+ax[0][3].set_xlabel('Average Snow on Ground (mm)')
+
+ax[1][0].scatter(data_grouped['avg_snow'], 
+         data_grouped['station_count'], 
+         s = data_grouped['station_count']*0.01)
+ax[1][0].grid(True)
+ax[1][0].set_xlabel('Average Snow (mm)')
+ax[1][0].set_title('Average Snow Vs Number of Trips', fontsize = 18)
+
+ax[1][1].scatter(data_grouped['avg_temp'], 
+         data_grouped['station_count'],
+         s = data_grouped['station_count']*0.01
+         )
+ax[1][1].grid(True)
+ax[1][1].set_xlabel('Average Temperature (C)')
+ax[1][1].set_title('Average Temperature Vs Number of Trips', fontsize = 18)
+
+ax[1][2].scatter(data_grouped['avg_rain'], 
+         data_grouped['station_count'], 
+         s = data_grouped['station_count']*0.01
+         )
+ax[1][2].grid(True)
+ax[1][2].set_xlabel('Average Rain (mm)')
+ax[1][2].set_title('Average Rain Vs Number of Trips', fontsize = 18)
+
+
+ax[1][3].scatter(data_grouped['avg_snow_ground'], 
+         data_grouped['station_count'], 
+         s = data_grouped['station_count']*0.01
+         )
+ax[1][3].grid(True)
+ax[1][3].set_title('Average Snow on Ground Vs Number of Trips', fontsize = 18)
+ax[1][3].set_xlabel('Average Snow on Ground (mm)')
+
+fig.tight_layout(pad=5.0)
+plt.show()
+
+#%%
+game = data_appended.groupby(['game_ind'], 
+                                     as_index = False).agg(station_count = ('station_id_end',
+                                                                            'count'),
+                                                            avg_trip = ('Trip  Duration',
+                                                                            'mean'))
+print(game)
+                                                                            #%%
+
+fig,ax = plt.subplots()
+#values, bins, bars = plt.hist(mlb_game['game_ind_mlb'], edgecolor='white')
+ax.set_xticks(ticks = [0,1])
+ax.ticklabel_format(useOffset=True, style='plain')
+ax.bar(game['game_ind'],game['station_count'])
+plt.show()
+#%% adding weekday
+game_day = data_appended.groupby(['game_ind','weekday'], 
+                                     as_index = False).agg(station_count = ('station_id_end',
+                                                                            'count'),
+                                                                avg_trip = ('Trip  Duration',
+                                                                            'mean'))
+print(game_day)
+#%%
+fig,ax = plt.subplots()
+#values, bins, bars = plt.hist(mlb_game['game_ind_mlb'], edgecolor='white')
+ax.set_xticks(ticks = [0,1])
+ax.ticklabel_format(useOffset=True, style='plain')
+ax.bar(game['game_ind'],game['station_count'])
+plt.show()
+#%%
+weekday = data_appended.groupby(['weekday'], 
+                                     as_index = False).agg(station_count = ('station_id_end',
+                                                                            'count'),
+                                                                            avg_trip = ('Trip  Duration',
+                                                                                            'mean'))
+print(weekday)
+
+hour= data_appended.groupby(['hour'], 
+                                     as_index = False).agg(station_count = ('station_id_end',
+                                                                            'count'),
+                                                                            avg_trip = ('Trip  Duration',
+                                                                                            'mean'))
+print(hour)
+#%%
+fig, ax = plt.subplots(nrows = 2,ncols = 1, figsize = (100,40))
+ax[0].plot(hour['hour'], 
+         hour['avg_trip'], 
+         label = data_grouped['game_ind'])
+
+ax[1].plot(hour['hour'], 
+         hour['station_count'], 
+         )
+
+
+
+plt.show()
+#%%
+
+
+
+user = data_appended.groupby(['User Type'], 
+                                     as_index = False).agg(station_count = ('station_id_end',
+                                                                            'count'),
+                                                                            station_count_2 = ('station_id_end',
+                                                                                                                   'count'),
+                                                            avg_trip = ('Trip  Duration',
+
+                                                                        'mean'))
+
+print(user)
+
+user['station_count'] = user['station_count']/365 
+
+print(user)
+#%%
+fig, ax = plt.subplots(nrows = 1,ncols = 3, figsize = (20,10))
+ax[0].bar(user['User Type'], 
+         user['avg_trip'],
+         color = ['darkblue','green']
+         )
+# ax[0].bar(user['User Type'], 
+#          user['avg_trip'])
+
+ax[0].grid(True)
+ax[0].set_title('Trip Duration (Mins) by User Type', fontsize = 18)
+# ax[1].bar(user['User Type'], 
+#          user['station_count'])
+ax[1].bar(user['User Type'], 
+         user['station_count'],
+         color = ['darkblue','green'])
+
+ax[1].grid(True)
+ax[1].set_title('Average Trips per Day by User Type', fontsize = 18)
+
+ax[2].bar(user['User Type'], 
+         user['station_count_2'],
+         color = ['darkblue','green'])
+ax[2].grid(True)
+ax[2].set_title('Total Number of Trips by User Type', fontsize = 18, loc = 'center')
+plt.show()
+#%% User 
+
+
+
+
+user = data_appended.groupby(['User Type'], 
+                                     as_index = False).agg(station_count = ('station_id_end',
+                                                                            'mean'),
+                                                            avg_trip = ('Trip  Duration',
+
+                                                                        'mean'))
+
+print(user)
+annual =  user.loc[user['User Type'] == 'Annual Member']
+casual =  user.loc[user['User Type'] == 'Casual Member']
+
+
+
+#%%
+game_day = data_appended.groupby(['User Type','weekday','game_ind'], 
+                                     as_index = False).agg(station_count = ('station_id_end',
+                                                                            'count'),
+                                                            avg_trip = ('Trip  Duration',
+
+                                                                        'mean'))
+
+print(user)
+annual_game =  game_day.loc[(game_day['User Type'] == 'Annual Member') & (game_day['game_ind'] == 1)]
+casual_game =  game_day.loc[(game_day['User Type'] == 'Casual Member') & (game_day['game_ind'] == 1)]
+annual_nogame =  game_day.loc[(game_day['User Type'] == 'Annual Member') & (game_day['game_ind'] == 0)]
+casual_nogame =  game_day.loc[(game_day['User Type'] == 'Casual Member') & (game_day['game_ind'] == 0)]
+#%% Annual Vs Casual Game Day
+fig, ax = plt.subplots(nrows = 2,ncols = 2, figsize = (20,20))
+ax[0][0].plot(annual_game['weekday'], 
+         annual_game['avg_trip'])
+ax[0][0].plot(casual_game['weekday'], 
+         casual_game['avg_trip'])
+ax[0][0].legend(labels = ['Annual','Casual'])
+ax[0][1].plot(annual_nogame['weekday'], 
+         annual_nogame['avg_trip'])
+ax[0][1].plot(casual_nogame['weekday'], 
+         casual_nogame['avg_trip'])
+ax[0][1].legend(labels = ['Annual','Casual'])
+ax[1][0].plot(annual_game['weekday'], 
+         annual_game['station_count'])
+ax[1][0].plot(casual_game['weekday'], 
+         casual_game['station_count'])
+ax[1][0].legend(labels = ['Annual','Casual'])
+ax[1][1].plot(annual_nogame['weekday'], 
+         annual_nogame['station_count'])
+ax[1][1].plot(casual_nogame['weekday'], 
+         casual_nogame['station_count'])
+ax[1][1].legend(labels = ['Annual','Casual'])
+plt.show()
+#%% Modelling 
+# Use of ANNs, Local Linear Regression, Logistic Regression, random forest,
+# assumption of i.i.d 
+ # defining parameter range 
+
+
+
+
+ 
+print(data_appended.columns)
+ #%%
+dataset = data_appended.groupby(['Date_Start Time','Season','weekend','game_ind','Pub_Holiday'], 
+                                as_index = False).agg(station_count = ('station_id_end',
+                                                                            'count'),
+                                                       avg_trip = ('Trip  Duration',
+                                                                   'mean'),
+                                                       game_ind = ('game_ind',
+                                                                   'mean',
+                                                                   ),
+                                                       # public_holiday = ('Pub_Holiday',
+                                                       #             'mean',
+                                                       #             ),
+                                                       # weekend = ('weekend',
+                                                       #             'mean',
+                                                       #             ),
+                                                       avg_rain = ('precipitation',
+                                                                   'mean',
+                                                                   ),
+                                                       avg_snow_ground = ('snow_on_ground',
+                                                                   'mean',
+                                                                   ),
+                                                       avg_snow = ('snow',
+                                                                   'mean',
+                                                                   ),
+                                                       Avg_temp = ('avg_hourly_temperature',
+                                                                   'mean',
+                                                                   ),
+                                                       Avg_wind = ('avg_hourly_wind_speed',
+                                                                   'mean',
+                                                                   ))
+
+#%%
+#print(dataset.columns)    
+dataset = dataset.fillna(0) 
+
+# dataset_L1 = dataset.diff(periods=1, axis=0)
+# # dataset_L1 = dataset_L1.merge(dataset, how = 'left', left_index = True,
+# #                               right_index = True)
+# print(dataset_L1)
+# dataset_L1 = dataset_L1.dropna(axis = 0) 
+#%%
+#print(dataset_L1.isna().sum())
+#%%
+print(dataset)
+x = dataset.drop(columns = ['Date_Start Time',
+                             'avg_trip',
+                             'station_count'])
+
+y = dataset['station_count']
+#%%
+encoded_x = pd.get_dummies(x,columns = ['Season'])
+
+#%%
+print(encoded_x.isna().sum())
+#%% test_train_split
+x_train, x_test, y_train , y_test = train_test_split(encoded_x,y,test_size = 0.2)
+#%%
+lin_reg = LinearRegression().fit(x_train,y_train)
+
+importance = lin_reg.coef_
+print(importance)
+print(lin_reg.score(x_test,y_test))
+print(x_train.columns)
+# plot feature importance
+plt.bar([x for x in range(len(importance))], importance)
+plt.show()
+
+print()
+y_pred = lin_reg.predict(x_test)
+print(mean_absolute_error(y_test, y_pred))
+#%%
+print(lin_reg.get_params())
+
+#%%
+MLPReg = MLPRegressor()
+print(MLPReg.get_params())
+
+
+param_grid = {'alpha': [0.0001, 0.01, 0.1],  
+              'hidden_layer_sizes': [(10,), (100,), (25,)], 
+              'learning_rate_init':[0.1,0.01,0.001,0.0001]}  
+
+
+
+grid = GridSearchCV(MLPReg, 
+                    param_grid, 
+                    refit = True, 
+                    verbose = 3,
+                    n_jobs=-1,
+                    scoring = 'neg_mean_absolute_error',
+                    return_train_score=True) 
+   
+# # fitting the model for grid search 
+# grid.fit(x_train, y_train) 
+# #%%
+# print(grid.best_params_) 
+# y_hat = grid.predict(x_test)
+# print(mean_absolute_error(y_test,y_hat))
+#%%
+clf = grid.fit(x, y) 
+#%%
+results = pd.DataFrame(clf.cv_results_)
+results = results.drop(columns = ['mean_fit_time',
+                              'std_fit_time',
+                              'mean_score_time',
+                              'std_score_time',
+                              'split0_test_score',
+                              'split1_test_score',
+                              'split2_test_score',
+                              'split3_test_score',
+                              'split4_test_score',
+                              'std_test_score',
+                              'rank_test_score',
+                              'split0_train_score',
+                              'split1_train_score',
+                              'split2_train_score',
+                              'split3_train_score',
+                              'split4_train_score',
+                              'std_train_score',
+                              'params'
+                        
+                              ])
+#%%
+print(results.columns)
+with pd.option_context('display.max_columns', None):  # more options can be specified also
+    print(results)
+
+#%%
+# results_grouped = pd.pivot_table(results,
+#                                  index = ['param_alpha','param_hidden_layer_sizes','param_learning_rate_init'],
+#                                  values = ['mean_test_score','mean_train_score'],
+#                                  aggfunc = 'last')
+
+# print(results_grouped.reset_index())
+# print classification report 
+
+
+results_grouped = results.groupby(['param_learning_rate_init']).agg(mean_test_score = ('mean_test_score','mean'),
+                                                                    mean_train_score = ('mean_train_score','mean')).reset_index()
+
+print(results_grouped)
+
+
+fig,ax = plt.subplots(nrows=1,ncols = 1)
+ax.plot(results_grouped['param_learning_rate_init'],results_grouped['mean_test_score'])
+ax.plot(results_grouped['param_learning_rate_init'],results_grouped['mean_train_score'])
+ax.legend(['Train Scores','Test Scores'])
+ax.grid(True)
+ax.set_title('Train and Test Mean Absolute Error (MAE) for MLP Regression')
+plt.show()
+#%% 
+MLPReg_model = MLPRegressor(alpha = 0.001,
+                      hidden_layer_sizes  = (100,),
+                      learning_rate_init = 0.1).fit(x_train,y_train)
+#%% MLP Validation curve and scores 
+y_pred = MLPReg_model.predict(x_test)
+print(MLPReg_model.score(x_test,y_test))
+print(mean_absolute_error(y_test, y_pred))
+
+
+
+#%% Random Forest 
+RF = RandomForestRegressor()
+
+param_grid = {
+              'max_depth': [10, 50, None],
+              
+              'min_samples_leaf': [1,  4],
+              'min_samples_split': [2,  10],
+              'n_estimators': [50, 200,500]} 
+
+
+
+grid = GridSearchCV(RF, 
+                    param_grid, 
+                    refit = True, 
+                    verbose = 3,
+                    n_jobs=-1,
+                    scoring = 'neg_mean_absolute_error',
+                    return_train_score = True) 
+   
+# fitting the model for grid search 
+grid.fit(x_train, y_train) 
+
+print(grid.best_params_) 
+#%%
+
+clf = grid.fit(x_train, y_train) 
+#%%
+results = pd.DataFrame(clf.cv_results_)
+results = results.drop(columns = ['mean_fit_time',
+                              'std_fit_time',
+                              'mean_score_time',
+                              'std_score_time',
+                              'split0_test_score',
+                              'split1_test_score',
+                              'split2_test_score',
+                              'split3_test_score',
+                              'split4_test_score',
+                              'std_test_score',
+                              'rank_test_score',
+                              'split0_train_score',
+                              'split1_train_score',
+                              'split2_train_score',
+                              'split3_train_score',
+                              'split4_train_score',
+                              'std_train_score',
+                              'params'
+                        
+                              ])
+ #%%
+print(results.columns)
+with pd.option_context('display.max_columns', None):  # more options can be specified also
+    print(results)
+#%%
+# results_grouped = pd.pivot_table(results,
+#                                  index = ['param_alpha','param_hidden_layer_sizes','param_learning_rate_init'],
+#                                  values = ['mean_test_score','mean_train_score'],
+#                                  aggfunc = 'last')
+
+# print(results_grouped.reset_index())
+# print classification report 
+
+
+results_grouped = results.groupby(['param_n_estimators']).agg(mean_test_score = ('mean_test_score','mean'),
+                                                                    mean_train_score = ('mean_train_score','mean')).reset_index()
+
+print(results_grouped)
+
+
+fig,ax = plt.subplots(nrows=1,ncols = 1)
+ax.plot(results_grouped['param_n_estimators'],results_grouped['mean_test_score'])
+ax.plot(results_grouped['param_n_estimators'],results_grouped['mean_train_score'])
+ax.legend(['Test Scores','Train Scores'])
+ax.grid(True)
+ax.set_title('Train and Test Mean Absolute Error (MAE) for Random Forest Regression')
+plt.show()
+
+#%%
+
+
+model = RandomForestRegressor(max_depth = 50,
+                              min_samples_leaf = 4,
+                              min_samples_split = 2,
+                              n_estimators = 50)
+# fit the model
+model.fit(x_train, y_train)
+#%%
+# get importance
+importance = model.feature_importances_
+# importance = model.coef_
+print(importance)
+print(model.score(x_test,y_test))
+print(x_train.columns)
+y_pred = model.predict(x_test)
+print(model.score(x_test,y_test))
+print(mean_absolute_error(y_test, y_pred))
+# summarize feature importance
+#%% XGBoost hyperparameter tuning 
+XGB = XGBRegressor()
+
+param_grid = {
+              'max_depth': [10, 50, None],
+              
+              'learning_rate': [0.001,  0.01, 0.1],
+
+              'n_estimators': [50, 200, 500]} 
+
+
+
+grid = GridSearchCV(XGB, 
+                    param_grid, 
+                    refit = True, 
+                    verbose = 3,
+                    n_jobs=-1,
+                    scoring = 'neg_mean_absolute_error',
+                    return_train_score=True) 
+   
+# fitting the model for grid search 
+grid.fit(x_train, y_train) 
+
+print(grid.best_params_) 
+#%%
+clf = grid.fit(x_train, y_train) 
+#%%
+results = pd.DataFrame(clf.cv_results_)
+results = results.drop(columns = ['mean_fit_time',
+                              'std_fit_time',
+                              'mean_score_time',
+                              'std_score_time',
+                              'split0_test_score',
+                              'split1_test_score',
+                              'split2_test_score',
+                              'split3_test_score',
+                              'split4_test_score',
+                              'std_test_score',
+                              'rank_test_score',
+                              'split0_train_score',
+                              'split1_train_score',
+                              'split2_train_score',
+                              'split3_train_score',
+                              'split4_train_score',
+                              'std_train_score',
+                              'params'
+                        
+                              ])
+#%%
+print(results.columns)
+print(results)
+with pd.option_context('display.max_columns', None):  # more options can be specified also
+    print(results)
+#%%
+# results_grouped = pd.pivot_table(results,
+#                                  index = ['param_alpha','param_hidden_layer_sizes','param_learning_rate_init'],
+#                                  values = ['mean_test_score','mean_train_score'],
+#                                  aggfunc = 'last')
+
+# print(results_grouped.reset_index())
+# print classification report 
+
+
+results_grouped = results.groupby(['param_learning_rate']).agg(mean_test_score = ('mean_test_score','mean'),
+                                                                    mean_train_score = ('mean_train_score','mean')).reset_index()
+
+print(results_grouped)
+#%%
+
+fig,ax = plt.subplots(nrows=1,ncols = 1)
+ax.plot(results_grouped['param_learning_rate'],results_grouped['mean_test_score'])
+ax.plot(results_grouped['param_learning_rate'],results_grouped['mean_train_score'])
+ax.legend(['Test Scores','Train Scores'])
+ax.grid(True)
+ax.set_title('Train and Test Mean Absolute Error (MAE) for XGBoost')
+plt.show()
+
+#%%
+XGB_Model = XGBRegressor(n_estimators=500, max_depth=None, learning_rate = 0.1)
+fitted = XGB_Model.fit(x_train, y_train)
+
+print(fitted.score(x_test,y_test))
+importance = fitted.feature_importances_
+print(importance)
+print(fitted.score(x_test,y_test))
+print(x_train.columns)
+y_hat = fitted.predict(x_test)
+print(mean_absolute_error(y_hat, y_test))
+
+#%%
+df = pd.DataFrame(dict(y_hat=data))
+#%%
+print(y_test.reset_index())
+y_test_1 = pd.DataFrame(y_test)
+y_test_1 = y_test_1.merge(dataset, how = 'left', left_index = True, right_index = True)
+
+
+y_test_1 = y_test_1.reset_index()
+
+print(y_test_1.columns)
+
+#%%
+
+
+y_test_1 = y_test_1[['station_count_x','Date_Start Time']]
+#%%
+
+print(y_test_1)
+#%%
+y_hat_1 = pd.DataFrame(y_hat)
+
+y_hat_1 =  y_hat_1.merge(y_test_1, how ='left', left_index = True,right_index = True)
+print(y_hat_1)
+#%%
+print(y_hat_1)
+#%%
+y_hat_1 = y_hat_1.drop(columns = ['station_count_x'])
+#%%
+fig,ax = plt.subplots()
+#ax.plot(y_hat)
+ax.scatter(y_test_1['Date_Start Time'],y_test_1['station_count_x'], s = y_test_1['station_count_x']*0.005 )
+ax.scatter(y_hat_1['Date_Start Time'],y_hat_1[0], s = y_hat_1[0]*0.005)
+ax.legend(['Actual','PRedicted'], loc = 'upper right')
+ax.set_title('Predicted Vs. Actual of XGBoost Regression')
+plt.grid(True)
+plt.show()
+#%%
+
+
+#%% doing without differencing
+
+x = dataset.drop(columns = ['Date_Start Time',
+                             'avg_trip',
+                             'station_count'])
+
+y = dataset['station_count']
+#%%
+encoded_x = pd.get_dummies(x,columns = ['Season'])
+
+#%%
+print(encoded_x.isna().sum())
+#%% test_train_split
+x_train, x_test, y_train , y_test = train_test_split(encoded_x,y,test_size = 0.2)
+
+# XGBoost
+XGB = XGBRegressor()
+
+param_grid = {
+              'max_depth': [10, 50, None],
+              
+              'learning_rate': [0.001,  0.01],
+
+              'n_estimators': [50, 200]} 
+
+
+
+grid = GridSearchCV(XGB, 
+                    param_grid, 
+                    refit = True, 
+                    verbose = 3,
+                    n_jobs=-1,
+                    scoring = 'neg_mean_absolute_error') 
+   
+# fitting the model for grid search 
+grid.fit(x_train, y_train) 
+
+print(grid.best_params_) 
+
+#%%
+XGB_Model = XGBRegressor(n_estimators=200, max_depth=None, learning_rate = 0.01)
+fitted = XGB_Model.fit(x_train, y_train)
+
+print(fitted.score(x_test,y_test))
+importance = fitted.feature_importances_
+print(importance)
+print(fitted.score(x_test,y_test))
+print(x_train.columns)
+#y_hat = fitted.pred(x_test)
+
+
+#%% MLP
+MLPReg = MLPRegressor()
+print(MLPReg.get_params())
+
+#%%
+param_grid = {'alpha': [0.0001, 0.001, 0.01, 0.1],  
+              'hidden_layer_sizes': [(10,), (100,), (25,)], 
+              'learning_rate_init':[0.01,0.001,0.0001]}  
+
+
+
+grid = GridSearchCV(MLPReg, 
+                    param_grid, 
+                    refit = True, 
+                    verbose = 3,
+                    n_jobs=-1,
+                    scoring = 'neg_mean_absolute_error') 
+   
+# fitting the model for grid search 
+grid.fit(x_train, y_train) 
+
+print(grid.best_params_) 
+#grid_predictions = grid.predict(x_test) 
+   
+# print classification report 
+#%% 
+MLPReg_model = MLPRegressor(alpha = 0.001,
+                      hidden_layer_sizes  = (100,),
+                      learning_rate_init = 0.01).fit(x_train,y_train)
+#%%
+print(MLPReg_model.score(x_test,y_test))
+
+print(x_train.columns)
+
+#%%
+
+RF = RandomForestRegressor()
+
+param_grid = {
+              'max_depth': [10, 50, None],
+              
+              'min_samples_leaf': [1,  4],
+              'min_samples_split': [2,  10],
+              'n_estimators': [50, 200]} 
+
+
+
+grid = GridSearchCV(RF, 
+                    param_grid, 
+                    refit = True, 
+                    verbose = 3,
+                    n_jobs=-1,
+                    scoring = 'neg_mean_absolute_error') 
+   
+# fitting the model for grid search 
+grid.fit(x_train, y_train) 
+
+print(grid.best_params_) 
+#%%
+
+
+model = RandomForestRegressor(max_depth = 50,
+                              min_samples_leaf = 4,
+                              min_samples_split = 10,
+                              n_estimators = 200)
+# fit the model
+model.fit(x_train, y_train)
+    #%%
+# get importance
+importance = model.feature_importances_
+# importance = model.coef_
+print(importance)
+print(model.score(x_test,y_test))
+print(x_train.columns)
+
+# summarize feature importance
