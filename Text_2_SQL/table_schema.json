@@ -1,0 +1,111 @@
+{
+  "tables": [
+    {
+      "separator": "table_1",
+      "name": "bikeshare_db.",
+      "schema": "CREATE TABLE schema_a.rides (Trip_Id int, Trip_Duration, Start_Station_Id int, Start_Time timestamp, Start_Station_Name varchar, End_Station_Id int, End_Time timestamp, End_Station_Name varchar, Bike_Id int, User_Type varchar, Model varchar);",
+      "description": "This table stores bikeshare toronto's ridership information at the ride level, with each trip representing one unlock and lock.",
+      "columns": [
+        {
+          "name": "Trip_Id",
+          "description": "unique identifier for trip",
+          "synonyms": ["Trip ID", "trip id", "trip identifier"]
+        },
+        {
+          "name": "Trip_Duration",
+          "description": "duration of the trip in seconds",
+          "synonyms": ["duration", "ride duration", "length of trip"]
+        },
+        {
+          "name": "Start_Station_Id",
+          "description": "ID of the station where trip started",
+          "synonyms": ["start station", "starting station id"]
+        },
+        {
+          "name": "Start_Time",
+          "description": "timestamp when the trip started",
+          "synonyms": ["start time", "trip start"]
+        },
+        {
+          "name": "Start_Station_Name",
+          "description": "name of the station where trip started",
+          "synonyms": ["start station name", "starting station"]
+        },
+        {
+          "name": "End_Station_Id",
+          "description": "ID of the station where trip ended",
+          "synonyms": ["end station", "ending station id"]
+        },
+        {
+          "name": "End_Time",
+          "description": "timestamp when the trip ended",
+          "synonyms": ["end time", "trip end"]
+        },
+        {
+          "name": "End_Station_Name",
+          "description": "name of the station where trip ended",
+          "synonyms": ["end station name", "ending station"]
+        },
+        {
+          "name": "Bike_Id",
+          "description": "unique identifier for the bike used",
+          "synonyms": ["bike id", "bicycle id"]
+        },
+        {
+          "name": "User_Type",
+          "description": "type of user (annual member or casual member)",
+          "synonyms": ["member type", "user category"]
+        },
+        {
+          "name": "Model",
+          "description": "model of the bike used",
+          "synonyms": ["bike model", "bicycle model"]
+        },
+        {
+          "name": "ym_id",
+          "description": "identifier for year and month of trip",
+          "synonyms": ["year month id", "year month identifier"]
+        }
+      ],
+      "sample_queries": [
+        {
+          "query": "SELECT COUNT(*) as total_trips FROM schema_a.rides WHERE User_Type = 'annual member' AND DATE(Start_Time) = '2023-01-01'",
+          "user_input": "How many trips were taken by annual members on January 1st, 2023?"
+        },
+        {
+          "query": "SELECT COUNT(*) as total_trips FROM schema_a.rides WHERE User_Type = 'annual member' AND DATE(Start_Time) = '2023-01-01'",
+          "user_input": "How many trips were taken by annual members on January 1st, 2023?"
+        }
+      ]
+    },
+    {
+      "separator": "table_2",
+      "name": "schema_a.stations",
+      "schema": "CREATE TABLE schema_a.stations (station_id int, lat float, lon float);",
+      "description": "This table stores the details of bike share stations including their locations.",
+      "columns": [
+        {
+          "name": "station_id",
+          "description": "unique identifier for the station",
+          "synonyms": ["station id", "station number"]
+        },
+        {
+          "name": "lat",
+          "description": "latitude coordinate of the station",
+          "synonyms": ["latitude", "station latitude"]
+        },
+        {
+          "name": "lon",
+          "description": "longitude coordinate of the station",
+          "synonyms": ["longitude", "station longitude"]
+        }
+      ],
+      "sample_queries": [
+        {
+          "query": "SELECT s.station_id, s.lat, s.lon, COUNT(*) as start_trips FROM schema_a.stations s JOIN schema_a.rides r ON s.station_id = r.Start_Station_Id GROUP BY s.station_id, s.lat, s.lon ORDER BY start_trips DESC LIMIT 5",
+          "user_input": "What are the top 5 most popular starting stations?"
+        }
+      ]
+    }
+  ]
+}
