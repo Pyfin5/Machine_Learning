@@ -6,3 +6,4 @@ Currently includes the following projects:
 2. End-to-End Text_to_Sql bikeshare project
 3. Supplier NER (Named Entity Recognition) with LangExtract
 4. Extraction of user operating system from Reddit comment
+5. End-to-End bikeshare Toronto forecasting model 
